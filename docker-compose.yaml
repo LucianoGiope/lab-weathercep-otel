@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  
+  weather-cep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weather-cep
+    env_file:
+      - ./server/cmd/.env
+    volumes:
+      - ./server/cmd/.env:/app/.env
+    ports:
+      - "8080:8080"
+    networks:
+      - weather-cep-network
+
+networks:
+  weather-cep-network:
+    driver: bridge
