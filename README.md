@@ -4,8 +4,6 @@ Ainda falta fazer:
 - Implementar a telemetria o zipkin.
 
 
-
-
 ## SEGUNDO DESAFIO DO LABORATÓRIO proposto pelo curso.
 
 ## Texto descritivo do desafio  
