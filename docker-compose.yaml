@@ -1,21 +1,97 @@
+# syntax=docker/dockerfile:1 
 version: '3'
-
-services:
-  
-  weather-cep:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: weather-cep
-    env_file:
-      - ./server/cmd/.env
-    volumes:
-      - ./server/cmd/.env:/app/.env
-    ports:
-      - "8080:8080"
-    networks:
-      - weather-cep-network
 
 networks:
   weather-cep-network:
-    driver: bridge
+
+services:
+  prometheus:
+    container_name: prometheus
+    hostname: prometheus
+    image: prom/prometheus:latest
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./.docker/prometheus.yaml:/etc/prometheus/prometheus.yaml
+    networks:
+      - weather-cep-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --no-verbose --tries=1 --timeout=5 http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  zipkin:
+    container_name: zipkin
+    hostname: zipkin
+    restart: always
+    image: openzipkin/zipkin:latest
+    ports:
+      - 9411:9411 # Port used for the Zipkin UI and HTTP Api
+    environment:
+      - STORAGE_TYPE=mem
+      - JAVA_OPTS=-Xms1024m -Xmx1024m -XX:+ExitOnOutOfMemoryError
+    networks:
+      - weather-cep-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --no-verbose --tries=1 --timeout=5 http://localhost:9411/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  otel-collector:
+    container_name: otel-collector
+    hostname: otel-collector
+    restart: always
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "8888:8888" # Prometheus metrics exposed by the collector
+      - "8889:8889" # Prometheus exporter metrics
+      - "4317:4317" # OTLP gRC receiver
+    networks:
+      - weather-cep-network
+
+  search-cep:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - PATH_API=search-cep
+        - API_PORT=8080
+    container_name: search-cep
+    env_file:
+      - ./search-cep/cmd/.env
+    volumes:
+      - ./search-cep/cmd/.env:/app/.env
+    ports:
+      - "8080:8080"
+    depends_on:
+      - otel-collector
+      - prometheus
+      - zipkin
+    networks:
+      - weather-cep-network
+
+  search-weather:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - PATH_API=search-weather
+        - API_PORT=8081
+    container_name: search-weather
+    env_file:
+      - ./search-weather/cmd/.env
+    volumes:
+      - ./search-weather/cmd/.env:/app/.env
+    ports:
+      - "8081:8081"
+    depends_on:
+      - otel-collector
+      - prometheus
+      - zipkin
+    networks:
+      - weather-cep-network

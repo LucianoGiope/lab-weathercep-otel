@@ -1,19 +1,18 @@
-package main
+package web
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/LucianoGiope/labsCloudrun/configs"
-	"github.com/LucianoGiope/labsCloudrun/pkg/httpResponseErr"
+	"github.com/LucianoGiope/openTelemetry/configs"
+	"github.com/LucianoGiope/openTelemetry/search-weather/pkg/httpResponseErr"
 )
 
 type Address struct {
@@ -23,22 +22,14 @@ type Address struct {
 	Cidade string `json:"localidade"`
 	Estado string `json:"uf"`
 }
-type WeatherResult struct {
-	Location struct {
-		Name    string `json:"name"`
-		Country string `json:"country"`
-	} `json:"location"`
-	Current struct {
-		TempC     float64 `json:"temp_c"`
-		TempF     float64 `json:"temp_f"`
-		TempK     float64 `json:"temp_k"`
-		Condition struct {
-			Text string `json:"text"`
-		} `json:"condition"`
-	} `json:"current"`
+
+type Weather struct {
+	TempC float64 `json:"temp_c"`
+	TempF float64 `json:"temp_f"`
+	TempK float64 `json:"temp_k"`
 }
 
-type WeatherApi struct {
+type WeatherAndCep struct {
 	Cep    string  `json:"cep"`
 	Rua    string  `json:"logradouro"`
 	Bairro string  `json:"bairro"`
@@ -49,42 +40,27 @@ type WeatherApi struct {
 	TempK  float64 `json:"temp_k"`
 }
 
-func NewWeatherApi(add *Address, wr *WeatherResult) *WeatherApi {
-	return &WeatherApi{
+func NewWeatherAndCep(add *Address, wr *Weather) *WeatherAndCep {
+	return &WeatherAndCep{
 		add.Cep,
 		add.Rua,
 		add.Bairro,
 		add.Cidade,
 		add.Estado,
-		wr.Current.TempC,
-		wr.Current.TempF,
-		wr.Current.TempK,
+		wr.TempC,
+		wr.TempF,
+		wr.TempK,
 	}
 }
-
-/*
-retorno da Api
-"temp_c": 14.2,
-"temp_f": 57.6,
-*/
-
-//  { "temp_C": 28.5, "temp_F": 28.5, "tempK": 28.5 }
-
-func main() {
-	println("\nIniciando o servidor na porta 8080 e aguardando requisições")
+func CreateNewServer() *http.ServeMux {
 
 	routers := http.NewServeMux()
+	routers.HandleFunc("/", SearchCEPHandler)
+	routers.HandleFunc("/weatherByCep/{cep}", SearchCEPHandler)
 
-	routers.HandleFunc("/", searchCEPHandler)
-	routers.HandleFunc("/weatherByCep/{cep}", searchCEPHandler)
-	err := http.ListenAndServe(":8080", routers)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	return routers
 }
-
-func searchCEPHandler(w http.ResponseWriter, r *http.Request) {
+func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 
 	var msgErro *httpResponseErr.SHttpError
 
@@ -163,7 +139,6 @@ func searchCEPHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(msgErro)
 
 	} else if resBodyCep != nil {
-		// var viacepResult Address
 		err = json.Unmarshal(resBodyCep, &viacepResult)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\nError converting response resBodyCep:%v\n", err.Error())
@@ -173,59 +148,54 @@ func searchCEPHandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Printf("\n--> Unable to locate city for zipcode:%s. [ErrorCode:%d]\n", CepCurrency, http.StatusNotFound)
 		} else {
 			fmt.Printf("\n--> The city %s has been located.\n", viacepResult.Cidade)
-		}
-	}
 
-	if nomeCidade != "" {
-		ctxSearchWeather, cancelSearchWeather := context.WithTimeout(ctxClient, time.Second*3)
-		defer cancelSearchWeather()
-
-		urlWeather := fmt.Sprint(config.UrlWeather) + fmt.Sprint(config.APIKeyWeather)
-
-		resBodyWeather, err := searchWeather(ctxSearchWeather, urlWeather, nomeCidade)
-		if err != nil {
-			msgErrFix := "__Error searching for WeatherApi."
-			if ctxSearchWeather.Err() != nil {
-				errCode = http.StatusRequestTimeout
-				errText = msgErrFix + "\n____[MESSAGE] Search time exceeded."
-			} else {
-				errCode = http.StatusBadRequest
-				errText = msgErrFix + "\n____[MESSAGE] Request failed."
-			}
-
-			msgErro = httpResponseErr.NewHttpError(errText, errCode)
-			w.WriteHeader(errCode)
-			json.NewEncoder(w).Encode(msgErro)
-
-		} else if resBodyWeather != nil {
-			var weatherResult WeatherResult
-			err = json.Unmarshal(resBodyWeather, &weatherResult)
+			ctxServerWeather, cancelServerWeather := context.WithTimeout(ctxClient, time.Second*1)
+			defer cancelServerWeather()
+			urlServerWeather := config.UrlServerWeather
+			resBodyResult, err := executeServerWeather(ctxServerWeather, urlServerWeather, nomeCidade)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "\nError converting response:%v\n", err.Error())
+				msgErrFix := "__Error executing server weather."
+				if ctxSearchViaCep.Err() != nil {
+					errCode = http.StatusRequestTimeout
+					errText = msgErrFix + "\n____[MESSAGE] Search server weather time exceeded."
+				} else {
+					errCode = http.StatusBadRequest
+					// errText = msgErrFix + "\n____[MESSAGE] Request server weather failed."
+					errText = msgErrFix + fmt.Sprintf("\nMensagem do erro %v;", err.Error())
+				}
+				msgErro = httpResponseErr.NewHttpError(errText, errCode)
+				w.WriteHeader(errCode)
+				json.NewEncoder(w).Encode(msgErro)
+
+			} else if resBodyResult != nil {
+				var weatherResult Weather
+				err = json.Unmarshal(resBodyResult, &weatherResult)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "\nError converting response server weather:%v\n", err.Error())
+				}
+				nav := NewWeatherAndCep(&viacepResult, &weatherResult)
+				fmt.Printf("\nSeguem os dados solicitados:\n"+
+					"ENDEREÇO RETORNADO\n"+
+					" Rua: %s\n Bairro: %s\n Cidade: %s\n Estado: %s\n CEP: %s\n\n"+
+					"CLIMA NA LOCALIDADE: \n Temperatura em Celsios:%v\n"+
+					" Temperatura em Fahrenheit:%v\n"+
+					" Temperatura em Kelvin:%v\n",
+					nav.Rua,
+					nav.Bairro,
+					nav.Cidade,
+					nav.Estado,
+					nav.Cep,
+					nav.TempC,
+					nav.TempF,
+					nav.TempK,
+				)
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(nav)
+
 			}
 
-			weatherResult.Current.TempK = weatherResult.Current.TempC + 273
-			fmt.Printf("\n--> Valores coletados para cidade: %s com temperaturas \n_______Celsius:%v \n_______Fahrenheit:%v \n_______Kelvin:%v \n_______Tempo:%s \n",
-				weatherResult.Location.Name,
-				weatherResult.Current.TempC,
-				weatherResult.Current.TempF,
-				weatherResult.Current.TempK,
-				weatherResult.Current.Condition.Text)
-
-			nwa := NewWeatherApi(&viacepResult, &weatherResult)
-
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(nwa)
 		}
-	} else {
-		errCode = http.StatusNotFound
-		errText = "Error searching for ViaCep.\n____[MESSAGE] Não foi possível localizar a cidade para o CEP informado."
-		msgErro = httpResponseErr.NewHttpError(errText, errCode)
-		w.WriteHeader(errCode)
-		json.NewEncoder(w).Encode(msgErro)
-
 	}
-
 	fmt.Printf("\n-> Time total in milliseconds traveled %v.\n\n", time.Since(timeAtual))
 }
 
@@ -260,53 +230,6 @@ func searchCep(ctx context.Context, urlSearch, apiName string) ([]byte, error) {
 		}
 	}
 }
-func removeAccents(texto string) string {
-	acentuados := map[rune]rune{
-		'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
-		'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u',
-		'ã': 'a', 'õ': 'o',
-		'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u',
-		'ç': 'c',
-	}
-
-	for r, v := range acentuados {
-		texto = strings.ReplaceAll(texto, string(r), string(v))
-	}
-	texto = strings.ReplaceAll(texto, " ", "%20")
-
-	return texto
-}
-func searchWeather(ctx context.Context, urlWeather, cidade string) ([]byte, error) {
-
-	timeAtual := time.Now()
-	fmt.Printf("\n--> Starting city weather search %s in %s\n", cidade, timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
-	cidadeSend := removeAccents(cidade)
-	bodyResp, err := requestApi(ctx, urlWeather+"&q="+cidadeSend)
-	select {
-	case <-ctx.Done():
-		err2 := ctx.Err()
-		if err2 == context.Canceled {
-			fmt.Printf("\n________Cancelled weather consultation for %s\n", cidade)
-		} else if err2 == context.DeadlineExceeded {
-			timeAtual = time.Now()
-			fmt.Printf("\n________Timeout to check weather %s in %s\n", cidade, timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
-		} else {
-			fmt.Printf("\n________Query for %s abandoned for unknown reason.\n [ERROR] %v\n", cidade, err)
-		}
-		return nil, nil
-	default:
-		if err != nil {
-			fmt.Printf("\n________Failed to query weather in %s\n [MESSAGE]%v\n", cidade, err.Error())
-			return nil, err
-		} else {
-			timeAtual = time.Now()
-			fmt.Printf("\n________Weather data captured for city: %s on %s\n", cidade, timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
-
-			return *bodyResp, nil
-		}
-	}
-}
-
 func requestApi(ctx context.Context, urlSearch string) (*[]byte, error) {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", urlSearch, nil)
@@ -330,4 +253,51 @@ func requestApi(ctx context.Context, urlSearch string) (*[]byte, error) {
 	}
 
 	return &bodyResp, nil
+}
+
+func removeAccents(texto string) string {
+	acentuados := map[rune]rune{
+		'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
+		'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u',
+		'ã': 'a', 'õ': 'o',
+		'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u',
+		'ç': 'c',
+	}
+
+	for r, v := range acentuados {
+		texto = strings.ReplaceAll(texto, string(r), string(v))
+	}
+	texto = strings.ReplaceAll(texto, " ", "%20")
+
+	return texto
+}
+func executeServerWeather(ctx context.Context, urlServerWeather, cidade string) ([]byte, error) {
+
+	timeAtual := time.Now()
+	fmt.Printf("\n--> Execute ServerWeather in %s\n", timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
+	cidadeSend := removeAccents(cidade)
+	bodyResp, err := requestApi(ctx, urlServerWeather+cidadeSend)
+	select {
+	case <-ctx.Done():
+		err2 := ctx.Err()
+		if err2 == context.Canceled {
+			fmt.Printf("\n________Cancelled SERVER weather consultation for %s\n", cidade)
+		} else if err2 == context.DeadlineExceeded {
+			timeAtual = time.Now()
+			fmt.Printf("\n________Timeout to check SERVER weather %s in %s\n", cidade, timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
+		} else {
+			fmt.Printf("\n________Query of SERVER weather for %s abandoned for unknown reason.\n [ERROR] %v\n", cidade, err)
+		}
+		return nil, nil
+	default:
+		if err != nil {
+			fmt.Printf("\n________Failed to query SERVER weather in %s\n [MESSAGE]%v\n", cidade, err.Error())
+			return nil, err
+		} else {
+			timeAtual = time.Now()
+			fmt.Printf("\n________SERVER Weather data response for city: %s on %s\n", cidade, timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
+
+			return *bodyResp, nil
+		}
+	}
 }

@@ -10,9 +10,10 @@ import (
 var cfg *conf
 
 type conf struct {
-	UrlWeather    string `mapstructure:"URLWEATHER"`
-	APIKeyWeather string `mapstructure:"APIKEYWEATHER"`
-	UrlCep        string `mapstructure:"URLCEP"`
+	UrlWeather       string `mapstructure:"URLWEATHER"`
+	APIKeyWeather    string `mapstructure:"APIKEYWEATHER"`
+	UrlCep           string `mapstructure:"URLCEP"`
+	UrlServerWeather string `mapstructure:"URLSERVERWEATHER"`
 }
 
 func LoadConfig(path string) (*conf, error) {

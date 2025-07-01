@@ -1,3 +1,11 @@
+
+Ainda falta fazer:
+- buildar o docker para ver se funciona os apps pelo docker. [OK]
+- Implementar a telemetria o zipkin.
+
+
+
+
 ## SEGUNDO DESAFIO DO LABORATÓRIO proposto pelo curso.
 
 ## Texto descritivo do desafio  
