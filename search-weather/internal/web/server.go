@@ -12,6 +12,7 @@ import (
 
 	"github.com/LucianoGiope/openTelemetry/configs"
 	"github.com/LucianoGiope/openTelemetry/search-weather/pkg/httpResponseErr"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type WeatherResult struct {
@@ -47,6 +48,7 @@ func CreateNewServer() *http.ServeMux {
 
 	routers := http.NewServeMux()
 	routers.HandleFunc("/{cidade}", SearchCEPHandler)
+	routers.Handle("/metrics", promhttp.Handler())
 
 	return routers
 }

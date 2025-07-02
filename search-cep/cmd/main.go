@@ -42,7 +42,7 @@ func InitProvider(serviceName, collectorURL string) (func(context.Context) error
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
 	conn, err := grpc.DialContext(
@@ -81,19 +81,19 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// ---------- cria o provider
-	shutdown, err := InitProvider("search-cep", "otel-collector:4317")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if err := shutdown(ctx); err != nil {
-			log.Fatal("failed to shutdown TracerProvider: %w", err)
-		}
-	}()
+	// // ---------- cria o provider
+	// shutdown, err := InitProvider("search-cep", "otel-collector:4317")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer func() {
+	// 	if err := shutdown(ctx); err != nil {
+	// 		log.Fatal("failed to shutdown TracerProvider: %w", err)
+	// 	}
+	// }()
 
+	println("\nIniciando serviço de consulta de cep na porta 8080 e aguardando requisições")
 	go func() {
-		println("\nIniciando serviço de consulta de cep na porta 8080 e aguardando requisições")
 		routers := web.CreateNewServer()
 		err := http.ListenAndServe(":8080", routers)
 		if err != nil {
@@ -110,5 +110,6 @@ func main() {
 
 	_, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
+	println("\nFinalizando serviço")
 
 }
