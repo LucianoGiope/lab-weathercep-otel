@@ -1,9 +1,3 @@
-
-Ainda falta fazer:
-- buildar o docker para ver se funciona os apps pelo docker. [OK]
-- Implementar a telemetria o zipkin.
-
-
 ## SEGUNDO DESAFIO DO LABORATÓRIO proposto pelo curso.
 
 ## Texto descritivo do desafio  
@@ -66,7 +60,7 @@ Entrega:
 -
 - [Modo2] Suba o container docker
 - Entre na pasta root do projeto
-- docker-compose up --build weather-cep
+- docker-compose up --build -d
 - 
 
 ## Com servidor ativado, executar a consulta

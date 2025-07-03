@@ -48,11 +48,16 @@ services:
     volumes:
       - ./.docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
     ports:
+      - "1888:1888" # pprof extension
       - "8888:8888" # Prometheus metrics exposed by the collector
       - "8889:8889" # Prometheus exporter metrics
       - "4317:4317" # OTLP gRC receiver
+      - "55679:55679" # zpages extension
+      - "13133:13133" # health_check extension
     networks:
       - weather-cep-network
+    depends_on:
+      - zipkin
 
   search-cep:
     build:
@@ -63,9 +68,9 @@ services:
         - API_PORT=8080
     container_name: search-cep
     env_file:
-      - ./search-cep/cmd/.env
+      - ./search-cep/cmd/.env_docker
     volumes:
-      - ./search-cep/cmd/.env:/app/.env
+      - ./search-cep/cmd/.env_docker:/app/.env
     ports:
       - "8080:8080"
     depends_on:
@@ -84,9 +89,9 @@ services:
         - API_PORT=8081
     container_name: search-weather
     env_file:
-      - ./search-weather/cmd/.env
+      - ./search-weather/cmd/.env_docker
     volumes:
-      - ./search-weather/cmd/.env:/app/.env
+      - ./search-weather/cmd/.env_docker:/app/.env
     ports:
       - "8081:8081"
     depends_on:

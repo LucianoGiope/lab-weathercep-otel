@@ -34,19 +34,17 @@ func InitProvider(serviceName, collectorURL string) (func(context.Context) error
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	conn, err := grpc.DialContext(
-		ctx,
-		collectorURL,
+	conn, err := grpc.NewClient(collectorURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
+	defer conn.Close()
 
 	tracerExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
-		return nil, fmt.Errorf("fiiled to create trace exporter: %w", err)
+		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
 
 	bsp := sdktrace.NewBatchSpanProcessor(tracerExporter)
@@ -71,15 +69,15 @@ func main() {
 	defer cancel()
 
 	// ---------- cria o provider
-	// shutdown, err := InitProvider("search-weather", "otel-collector:4317")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer func() {
-	// 	if err := shutdown(ctx); err != nil {
-	// 		log.Fatal("failed to shutdown TracerProvider: %w", err)
-	// 	}
-	// }()
+	shutdown, err := InitProvider("search-weather", "otel-collector:4317")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := shutdown(ctx); err != nil {
+			log.Fatal("failed to shutdown TracerProvider: %w", err)
+		}
+	}()
 
 	println("\nIniciando serviço de busca do clima na porta 8081 e aguardando requisições")
 	go func() {
