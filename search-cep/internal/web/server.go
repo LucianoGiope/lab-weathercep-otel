@@ -14,6 +14,7 @@ import (
 	"github.com/LucianoGiope/openTelemetry/configs"
 	"github.com/LucianoGiope/openTelemetry/search-weather/pkg/httpResponseErr"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
 )
 
 type Address struct {
@@ -63,6 +64,12 @@ func CreateNewServer() *http.ServeMux {
 	return routers
 }
 func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
+	// carrier := propagation.HeaderCarrier(r.Header)
+	ctxClient := r.Context()
+	// ctxClient = otel.GetTextMapPropagator().Extract(ctxClient, carrier)
+	tracer := otel.Tracer("search-cep")
+	ctxClient, span := tracer.Start(ctxClient, "SearchCEPHandler")
+	defer span.End()
 
 	var msgErro *httpResponseErr.SHttpError
 
@@ -110,8 +117,6 @@ func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(msgErro)
 		return
 	}
-
-	ctxClient := r.Context()
 
 	timeAtual := time.Now()
 	fmt.Printf("\n-> Searching local climate for the ZIPCODE:%s in %v.\n", CepCurrency, timeAtual.Format("02/01/2006 15:04:05 ")+timeAtual.String()[20:29]+" ms")
