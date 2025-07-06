@@ -1,6 +1,3 @@
-# syntax=docker/dockerfile:1 
-version: '3'
-
 networks:
   weather-cep-network:
 

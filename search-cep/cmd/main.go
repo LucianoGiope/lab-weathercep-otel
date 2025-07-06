@@ -91,8 +91,12 @@ func main() {
 	}()
 
 	println("\nIniciando serviço de consulta de cep na porta 8080 e aguardando requisições")
+	otelTracer := &web.ServerTracer{
+		OTELTracer: otel.Tracer("sistema-search-cep-weather"),
+	}
+	server := web.NewServer(otelTracer)
+	routers := server.CreateNewServer()
 	go func() {
-		routers := web.CreateNewServer()
 		err := http.ListenAndServe(":8080", routers)
 		if err != nil {
 			log.Fatal(err)

@@ -12,8 +12,8 @@ import (
 
 	"github.com/LucianoGiope/openTelemetry/configs"
 	"github.com/LucianoGiope/openTelemetry/search-weather/pkg/httpResponseErr"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type WeatherResult struct {
@@ -49,15 +49,14 @@ func CreateNewServer() *http.ServeMux {
 
 	routers := http.NewServeMux()
 	routers.HandleFunc("/{cidade}", SearchWeatherHandler)
-	routers.Handle("/metrics", promhttp.Handler())
 
 	return routers
 }
 func SearchWeatherHandler(w http.ResponseWriter, r *http.Request) {
 
-	// carrier := propagation.HeaderCarrier(r.Header)
+	carrier := propagation.HeaderCarrier(r.Header)
 	ctxClient := r.Context()
-	// ctxClient = otel.GetTextMapPropagator().Extract(ctxClient, carrier)
+	ctxClient = otel.GetTextMapPropagator().Extract(ctxClient, carrier)
 	tracer := otel.Tracer("search-weather")
 	ctxClient, span := tracer.Start(ctxClient, "SearchWeatherHandler")
 	defer span.End()
@@ -91,15 +90,12 @@ func SearchWeatherHandler(w http.ResponseWriter, r *http.Request) {
 	errText := ""
 
 	if nomeCidade != "" {
-		ctxSearchWeather, cancelSearchWeather := context.WithTimeout(ctxClient, time.Second*3)
-		defer cancelSearchWeather()
-
 		urlWeather := fmt.Sprint(config.UrlWeather) + fmt.Sprint(config.APIKeyWeather)
 
-		resBodyWeather, err := searchWeather(ctxSearchWeather, urlWeather, nomeCidade)
+		resBodyWeather, err := searchWeather(ctxClient, urlWeather, nomeCidade)
 		if err != nil {
 			msgErrFix := "__Error searching for WeatherApi."
-			if ctxSearchWeather.Err() != nil {
+			if ctxClient.Err() != nil {
 				errCode = http.StatusRequestTimeout
 				errText = msgErrFix + "\n____[MESSAGE] Search time exceeded."
 			} else {

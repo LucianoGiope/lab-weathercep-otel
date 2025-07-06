@@ -15,6 +15,8 @@ import (
 	"github.com/LucianoGiope/openTelemetry/search-weather/pkg/httpResponseErr"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Address struct {
@@ -54,22 +56,36 @@ func NewWeatherAndCep(add *Address, wr *Weather) *WeatherAndCep {
 		wr.TempK,
 	}
 }
-func CreateNewServer() *http.ServeMux {
+func (we *Webserver) CreateNewServer() *http.ServeMux {
 
 	routers := http.NewServeMux()
-	routers.HandleFunc("/", SearchCEPHandler)
-	routers.HandleFunc("/weatherByCep/{cep}", SearchCEPHandler)
 	routers.Handle("/metrics", promhttp.Handler())
+	routers.HandleFunc("/", we.SearchCEPHandler)
+	routers.HandleFunc("/weatherByCep/{cep}", we.SearchCEPHandler)
 
 	return routers
 }
-func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
-	// carrier := propagation.HeaderCarrier(r.Header)
+
+type Webserver struct {
+	ServerTracer *ServerTracer
+}
+
+func NewServer(serverTracer *ServerTracer) *Webserver {
+	return &Webserver{
+		ServerTracer: serverTracer,
+	}
+}
+
+type ServerTracer struct {
+	OTELTracer trace.Tracer
+}
+
+func (h *Webserver) SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
+	carrier := propagation.HeaderCarrier(r.Header)
 	ctxClient := r.Context()
-	// ctxClient = otel.GetTextMapPropagator().Extract(ctxClient, carrier)
-	tracer := otel.Tracer("search-cep")
-	ctxClient, span := tracer.Start(ctxClient, "SearchCEPHandler")
-	defer span.End()
+	ctxClient = otel.GetTextMapPropagator().Extract(ctxClient, carrier)
+	ctxClient, span1 := h.ServerTracer.OTELTracer.Start(ctxClient, "SearchCEPHandler")
+	defer span1.End()
 
 	var msgErro *httpResponseErr.SHttpError
 
@@ -124,17 +140,14 @@ func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 	errCode := 0
 	errText := ""
 	var viacepResult Address
-
-	ctxSearchViaCep, cancelSearchVC := context.WithTimeout(ctxClient, time.Second*1)
-	defer cancelSearchVC()
 	urlSearch := fmt.Sprintf(config.UrlCep, CepCurrency)
 
 	nomeCidade := ""
 	// Search data cep
-	resBodyCep, err := searchCep(ctxSearchViaCep, urlSearch, "ViaCep")
+	resBodyCep, err := searchCep(ctxClient, urlSearch, "ViaCep")
 	if err != nil {
 		msgErrFix := "__Error searching for ViaCep."
-		if ctxSearchViaCep.Err() != nil {
+		if ctxClient.Err() != nil {
 			errCode = http.StatusRequestTimeout
 			errText = msgErrFix + "\n____[MESSAGE] Search time exceeded."
 		} else {
@@ -156,18 +169,18 @@ func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Printf("\n--> The city %s has been located.\n", viacepResult.Cidade)
 
-			ctxServerWeather, cancelServerWeather := context.WithTimeout(ctxClient, time.Second*1)
-			defer cancelServerWeather()
+			ctxClient, span2 := h.ServerTracer.OTELTracer.Start(ctxClient, "SearchWeatherHandlerRequest")
+			defer span2.End()
+
 			urlServerWeather := config.UrlServerWeather
-			resBodyResult, err := executeServerWeather(ctxServerWeather, urlServerWeather, nomeCidade)
+			resBodyResult, err := executeServerWeather(ctxClient, urlServerWeather, nomeCidade)
 			if err != nil {
 				msgErrFix := "__Error executing server weather."
-				if ctxSearchViaCep.Err() != nil {
+				if ctxClient.Err() != nil {
 					errCode = http.StatusRequestTimeout
 					errText = msgErrFix + "\n____[MESSAGE] Search server weather time exceeded."
 				} else {
 					errCode = http.StatusBadRequest
-					// errText = msgErrFix + "\n____[MESSAGE] Request server weather failed."
 					errText = msgErrFix + fmt.Sprintf("\nMensagem do erro %v;", err.Error())
 				}
 				msgErro = httpResponseErr.NewHttpError(errText, errCode)
@@ -180,6 +193,7 @@ func SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "\nError converting response server weather:%v\n", err.Error())
 				}
+
 				nav := NewWeatherAndCep(&viacepResult, &weatherResult)
 				fmt.Printf("\nSeguem os dados solicitados:\n"+
 					"ENDEREÇO RETORNADO\n"+
@@ -244,6 +258,7 @@ func requestApi(ctx context.Context, urlSearch string) (*[]byte, error) {
 		return nil, err
 	}
 
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
