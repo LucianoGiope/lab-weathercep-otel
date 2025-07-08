@@ -92,7 +92,7 @@ func main() {
 
 	println("\nIniciando serviço de consulta de cep na porta 8080 e aguardando requisições")
 	otelTracer := &web.ServerTracer{
-		OTELTracer: otel.Tracer("sistema-search-cep-weather"),
+		OTELTracer: otel.Tracer("search-weather"),
 	}
 	server := web.NewServer(otelTracer)
 	routers := server.CreateNewServer()

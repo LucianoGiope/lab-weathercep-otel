@@ -20,83 +20,93 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// InitProvider inicializa o TracerProvider com exporter OTLP via gRPC
 func InitProvider(serviceName, collectorURL string) (func(context.Context) error, error) {
-	ctx := context.Background()
+	// Contexto com timeout para a inicialização
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
+	// Cria resource com nome do serviço
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
+			semconv.ServiceNameKey.String(serviceName),
 		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
 
-	conn, err := grpc.NewClient(collectorURL,
+	// Abre conexão gRPC com o collector OTLP
+	conn, err := grpc.DialContext(ctx, collectorURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
-	defer conn.Close()
 
+	// Cria exporter OTLP usando a conexão gRPC
 	tracerExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
 
+	// Cria span processor batch e o tracer provider
 	bsp := sdktrace.NewBatchSpanProcessor(tracerExporter)
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()), // Sempre amostra para testes
 		sdktrace.WithResource(res),
 		sdktrace.WithSpanProcessor(bsp),
 	)
-	otel.SetTracerProvider(tracerProvider)
 
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+	// Define o tracer provider global
+	otel.SetTracerProvider(tp)
 
-	return tracerProvider.Shutdown, nil
+	// Define o propagator para TraceContext + Baggage (padrão OpenTelemetry)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	// Retorna função para shutdown do provider
+	return tp.Shutdown, nil
 }
 
 func main() {
-
-	// ---------- graceful shutdown
+	// Canal para capturar CTRL+C
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// ---------- cria o provider
+	// Inicializa o provider de tracing
 	shutdown, err := InitProvider("search-weather", "otel-collector:4317")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Erro ao iniciar provider: %v", err)
 	}
 	defer func() {
-		if err := shutdown(ctx); err != nil {
-			log.Fatal("failed to shutdown TracerProvider: %w", err)
+		// Timeout para garantir encerramento correto
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			log.Fatalf("failed to shutdown TracerProvider: %v", err)
 		}
 	}()
 
 	println("\nIniciando serviço de busca do clima na porta 8081 e aguardando requisições")
 	go func() {
 		routers := web.CreateNewServer()
-		err := http.ListenAndServe(":8081", routers)
-		if err != nil {
-			log.Fatal(err)
+		if err := http.ListenAndServe(":8081", routers); err != nil {
+			log.Fatalf("Erro no servidor HTTP: %v", err)
 		}
 	}()
 
+	// Aguarda sinal para encerrar
 	select {
 	case <-sigCh:
-		log.Println("Shutting down gracefully, CTRL+c pressed...")
+		log.Println("Shutting down gracefully, CTRL+C pressed...")
 	case <-ctx.Done():
 		log.Println("Shutting down due other reason...")
 	}
 
-	_, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
 	println("\nFinalizando serviço")
-
 }
