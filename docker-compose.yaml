@@ -22,12 +22,12 @@ services:
     container_name: zipkin
     hostname: zipkin
     restart: always
-    image: openzipkin/zipkin:latest
+    image: openzipkin/zipkin:2.24.3
     ports:
       - 9411:9411 # Port used for the Zipkin UI and HTTP Api
     environment:
       - STORAGE_TYPE=mem
-      - JAVA_OPTS=-Xms1024m -Xmx1024m -XX:+ExitOnOutOfMemoryError
+      - JAVA_OPTS=-Xms1024m -Xmx1024m -XX:+ExitOnOutOfMemoryError -Dlogging.level.root=DEBUG
     networks:
       - weather-cep-network
     healthcheck:
