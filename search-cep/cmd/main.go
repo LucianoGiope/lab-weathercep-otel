@@ -32,26 +32,25 @@ type WeatherApi struct {
 }
 
 func InitProvider(serviceName, collectorURL string) (func(context.Context) error, error) {
-	ctx := context.Background()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
+			semconv.ServiceNameKey.String(serviceName),
 		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
 
-	conn, err := grpc.NewClient(collectorURL,
+	conn, err := grpc.DialContext(ctx, collectorURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
-	defer conn.Close()
 
 	tracerExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
@@ -66,7 +65,10 @@ func InitProvider(serviceName, collectorURL string) (func(context.Context) error
 	)
 	otel.SetTracerProvider(tracerProvider)
 
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	return tracerProvider.Shutdown, nil
 }
@@ -82,17 +84,19 @@ func main() {
 	// // ---------- cria o provider
 	shutdown, err := InitProvider("search-cep", "otel-collector:4317")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Erro ao iniciar provider em search-cep. %v", err)
 	}
 	defer func() {
-		if err := shutdown(ctx); err != nil {
-			log.Fatal("failed to shutdown TracerProvider: %w", err)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			log.Fatalf("failed search-cep to shutdown TracerProvider: %v", err)
 		}
 	}()
 
 	println("\nIniciando serviço de consulta de cep na porta 8080 e aguardando requisições")
 	otelTracer := &web.ServerTracer{
-		OTELTracer: otel.Tracer("sistema-search-cep-weather"),
+		OTELTracer: otel.Tracer("search-weather"),
 	}
 	server := web.NewServer(otelTracer)
 	routers := server.CreateNewServer()
@@ -105,13 +109,10 @@ func main() {
 
 	select {
 	case <-sigCh:
-		log.Println("Shutting down gracefully, CTRL+c pressed...")
+		log.Println("Shutting down gracefully, CTRL+C pressed...")
 	case <-ctx.Done():
 		log.Println("Shutting down due other reason...")
 	}
 
-	_, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
 	println("\nFinalizando serviço")
-
 }

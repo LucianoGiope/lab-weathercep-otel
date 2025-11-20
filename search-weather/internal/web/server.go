@@ -193,6 +193,7 @@ func requestApi(ctx context.Context, urlSearch string) (*[]byte, error) {
 		return nil, err
 	}
 
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

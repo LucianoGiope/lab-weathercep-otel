@@ -2,12 +2,13 @@ receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: "otel-collector:4317"
 
 exporters:
   prometheus:
-    endpoint: "0.0.0.0:8889"
+    endpoint: "otel-collector:8889"
 
-  logging:
+  debug: {}
 
   zipkin:
     endpoint: "http://zipkin:9411/api/v2/spans"
@@ -29,8 +30,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, zipkin]
+      exporters: [debug, zipkin]
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, prometheus]
+      exporters: [debug, prometheus]

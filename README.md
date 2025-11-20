@@ -54,7 +54,12 @@ Entrega:
 - - APIKEYWEATHER={SEU TOKEN PARA A API WEATHER}
 
 ## Passo 2- Deve-se subir o server
-- [Modo1] Acesse a pasta: server/cmd
+- [Modo1] Por linha de comando
+- Acesse a pasta: search-weather/cmd
+- Execute o comando 
+- - go run main.go
+-
+- Acesse a pasta search-cep/cmd
 - Execute o comando 
 - - go run main.go
 -
@@ -64,15 +69,23 @@ Entrega:
 - 
 
 ## Com servidor ativado, executar a consulta
-- Utilizando o cliente em Go
-- - Acesse a pasta client/cmd e rode o comando abaixo
-- - go run main.go {NÚMERO DO CEP}
--
+- Utilizando linha de comando no terminal
+- - curl http://localhost:8080/weatherByCep/{NÚMERO DO CEP}
+
 - Utilizando serviço http
 - - Abra o arquivo consulta.http na pasta api
 - - Informe um cep válido e execute.
 -
 - Utilizando o navegador
 - - http://localhost:8080/weatherByCep/{NÚMERO DO CEP}
+
+## Caso ocorra o seguinte erro de resolução de DNS
+`traces export: exporter export timeout: rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial tcp: lookup otel-collector on 127.0.0.53:53: server misbehaving"`
+
+- Adicione a liberação no arquivo de hosts do seu ambiente:
+- No Linux, edite o aquivo hosts
+- - sudo vim /etc/hosts
+- - Adicione a liberação para IP aporesentado na mensagem de erro:
+- - Ex: 127.0.0.53   otel-collector
 
 

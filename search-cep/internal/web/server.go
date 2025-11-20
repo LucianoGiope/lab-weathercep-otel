@@ -60,9 +60,7 @@ func (we *Webserver) CreateNewServer() *http.ServeMux {
 
 	routers := http.NewServeMux()
 	routers.Handle("/metrics", promhttp.Handler())
-	routers.HandleFunc("/", we.SearchCEPHandler)
 	routers.HandleFunc("/weatherByCep/{cep}", we.SearchCEPHandler)
-
 	return routers
 }
 
@@ -102,8 +100,8 @@ func (h *Webserver) SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 
 	urlAccess := strings.Split(r.URL.Path, "/")[1]
 	if urlAccess != "weatherByCep" {
-		fmt.Printf("The access must by in  of the endpoint http://localhost:8080/weatherByCep. [ErrorCode:%d]\n", http.StatusBadRequest)
-		msgErro = httpResponseErr.NewHttpError("The access must by in  of the endpoint http://localhost:8080/weatherByCep\n", http.StatusNotFound)
+		fmt.Printf("The access must by in of the endpoint http://localhost:8080/weatherByCep e foi em:%s. [ErrorCode:%d]\n", urlAccess, http.StatusBadRequest)
+		msgErro = httpResponseErr.NewHttpError("The access must by in of the endpoint http://localhost:8080/weatherByCep\n", http.StatusNotFound)
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(msgErro)
 		return
@@ -169,14 +167,16 @@ func (h *Webserver) SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fmt.Printf("\n--> The city %s has been located.\n", viacepResult.Cidade)
 
-			ctxClient, span2 := h.ServerTracer.OTELTracer.Start(ctxClient, "SearchWeatherHandlerRequest")
+			ctxClient2 := r.Context()
+			ctxClient2 = otel.GetTextMapPropagator().Extract(ctxClient2, carrier)
+			ctxClient2, span2 := h.ServerTracer.OTELTracer.Start(ctxClient2, "SearchWeatherHandlerRequest")
 			defer span2.End()
 
 			urlServerWeather := config.UrlServerWeather
-			resBodyResult, err := executeServerWeather(ctxClient, urlServerWeather, nomeCidade)
+			resBodyResult, err := executeServerWeather(ctxClient2, urlServerWeather, nomeCidade)
 			if err != nil {
 				msgErrFix := "__Error executing server weather."
-				if ctxClient.Err() != nil {
+				if ctxClient2.Err() != nil {
 					errCode = http.StatusRequestTimeout
 					errText = msgErrFix + "\n____[MESSAGE] Search server weather time exceeded."
 				} else {
@@ -212,7 +212,7 @@ func (h *Webserver) SearchCEPHandler(w http.ResponseWriter, r *http.Request) {
 				)
 				w.WriteHeader(http.StatusOK)
 				json.NewEncoder(w).Encode(nav)
-
+				return
 			}
 
 		}
