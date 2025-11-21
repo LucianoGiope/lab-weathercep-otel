@@ -88,4 +88,11 @@ Entrega:
 - - Adicione a liberação para IP aporesentado na mensagem de erro:
 - - Ex: 127.0.0.53   otel-collector
 
+ 
+## Imagens da execução do projeto
+
+
+<img width="1837" height="1036" alt="visaoGeral" src="https://github.com/user-attachments/assets/1038c854-5625-4c75-9515-caea8df232cd" />
+<img width="1167" height="699" alt="ZipKinVisaoDetalhes-Spans" src="https://github.com/user-attachments/assets/d4b5bd01-5b05-416b-95a5-c5a8bfff4214" />
+
 
